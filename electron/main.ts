@@ -23,6 +23,7 @@ let mainWindow: BrowserWindow | null = null
 let tray: Tray | null = null
 let isQuitting = false
 let hotkeyInFlight = false
+let physicalCtrlHeld = false
 
 function log(...args: unknown[]) {
   console.log('[quickhide]', ...args)
@@ -410,7 +411,12 @@ async function appendHideRuleFromHoveredItem() {
 
 function registerHotkey() {
   log('registering uIOhook hotkey listener')
+
   uIOhook.on('keydown', async (event) => {
+    if (event.keycode === UiohookKey.Ctrl) {
+      physicalCtrlHeld = true
+    }
+
     const focused = await activeWin().catch(() => null)
     const poeFocused = isPoeFocusedTitle(focused)
 
@@ -418,6 +424,7 @@ function registerHotkey() {
       log('keydown', {
         keycode: event.keycode,
         ctrlKey: event.ctrlKey,
+        physicalCtrlHeld,
         altKey: event.altKey,
         shiftKey: event.shiftKey,
         metaKey: (event as unknown as { metaKey?: boolean }).metaKey,
@@ -425,7 +432,7 @@ function registerHotkey() {
       })
     }
 
-    if (poeFocused && event.ctrlKey && event.keycode === UiohookKey.H) {
+    if (poeFocused && physicalCtrlHeld && event.keycode === UiohookKey.H) {
       if (hotkeyInFlight) {
         log('Ctrl+H ignored because handler already running')
         return
@@ -446,6 +453,14 @@ function registerHotkey() {
       }
     }
   })
+
+  uIOhook.on('keyup', (event) => {
+    if (event.keycode === UiohookKey.Ctrl) {
+      physicalCtrlHeld = false
+      log('physical Ctrl released')
+    }
+  })
+
   uIOhook.start()
   log('uIOhook started')
 }
