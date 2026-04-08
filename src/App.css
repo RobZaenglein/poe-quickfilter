@@ -1,0 +1,61 @@
+:root {
+  font-family: Inter, system-ui, Arial, sans-serif;
+  color: #e8e8e8;
+  background: #141414;
+}
+
+body {
+  margin: 0;
+  background: #141414;
+}
+
+#root {
+  width: 100%;
+}
+
+.app-shell {
+  max-width: 900px;
+  margin: 0 auto;
+  padding: 24px;
+}
+
+.card {
+  background: #1e1e1e;
+  border: 1px solid #303030;
+  border-radius: 12px;
+  padding: 16px;
+  margin-bottom: 16px;
+}
+
+.row {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+input {
+  flex: 1;
+  padding: 10px 12px;
+  border-radius: 8px;
+  border: 1px solid #444;
+  background: #111;
+  color: #eee;
+}
+
+button {
+  padding: 10px 14px;
+  border-radius: 8px;
+  border: 1px solid #555;
+  background: #2d5cff;
+  color: white;
+  cursor: pointer;
+}
+
+pre {
+  white-space: pre-wrap;
+  word-break: break-word;
+  background: #101010;
+  border-radius: 8px;
+  padding: 12px;
+  border: 1px solid #2d2d2d;
+}
