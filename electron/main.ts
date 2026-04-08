@@ -208,13 +208,21 @@ function q(value: string) {
   return value.replace(/"/g, '\\"')
 }
 
-function buildHideRule(itemText: string) {
+type RuleShape = {
+  className?: string
+  stackSizeLte?: number
+  baseTypes: string[]
+}
+
+function buildRuleShape(itemText: string): RuleShape {
   const parsed = parseItemText(itemText)
 
   if (parsed.itemClass === 'Stackable Currency') {
-    const baseType = q(parsed.nameLine)
-    const stackLine = parsed.stackSize != null ? `\n    StackSize <= ${parsed.stackSize}` : ''
-    return `\n# Added by Poe Quickhide Filter\nHide\n    Class \"Stackable Currency\"\n    BaseType \"${baseType}\"${stackLine}\n`
+    return {
+      className: 'Stackable Currency',
+      stackSizeLte: parsed.stackSize ?? undefined,
+      baseTypes: [parsed.nameLine || 'Unknown Item'],
+    }
   }
 
   const exactNameClasses = new Set([
@@ -234,8 +242,88 @@ function buildHideRule(itemText: string) {
     target = parsed.secondLine || parsed.nameLine
   }
 
-  target = q(target || 'Unknown Item')
-  return `\n# Added by Poe Quickhide Filter\nHide\n    BaseType \"${target}\"\n`
+  return {
+    baseTypes: [target || 'Unknown Item'],
+  }
+}
+
+function ruleKey(rule: RuleShape) {
+  return JSON.stringify({
+    className: rule.className ?? '',
+    stackSizeLte: rule.stackSizeLte ?? '',
+  })
+}
+
+function renderRule(rule: RuleShape) {
+  const baseTypes = [...new Set(rule.baseTypes)].sort().map(v => `\"${q(v)}\"`).join(' ')
+  const lines = ['# Added by Poe Quickhide Filter', 'Hide']
+  if (rule.stackSizeLte != null) lines.push(`    StackSize <= ${rule.stackSizeLte}`)
+  if (rule.className) lines.push(`    Class == \"${q(rule.className)}\"`)
+  lines.push(`    BaseType == ${baseTypes}`)
+  return `${lines.join('\n')}\n`
+}
+
+function parseGeneratedBlocks(text: string): { rules: RuleShape[]; rest: string } {
+  const marker = '# Added by Poe Quickhide Filter'
+  const lines = text.split(/\r?\n/)
+  const rules: RuleShape[] = []
+  let i = 0
+
+  while (i < lines.length && lines[i].trim() === '') i++
+  while (i < lines.length && lines[i] === marker) {
+    const block: string[] = []
+    while (i < lines.length) {
+      const line = lines[i]
+      if (i !== lines.length - 1 && lines[i + 1] === marker && line.trim() === '') {
+        block.push(line)
+        i++
+        break
+      }
+      block.push(line)
+      i++
+      if (i < lines.length && lines[i] === marker) break
+    }
+
+    const joined = block.join('\n')
+    const classMatch = joined.match(/Class == \"([^\"]+)\"/)
+    const stackMatch = joined.match(/StackSize <= (\d+)/)
+    const baseTypeMatch = joined.match(/BaseType == ([^\n]+)/)
+    const baseTypes = baseTypeMatch
+      ? [...baseTypeMatch[1].matchAll(/\"([^\"]+)\"/g)].map(m => m[1])
+      : []
+
+    rules.push({
+      className: classMatch?.[1],
+      stackSizeLte: stackMatch ? Number(stackMatch[1]) : undefined,
+      baseTypes,
+    })
+
+    while (i < lines.length && lines[i].trim() === '') i++
+  }
+
+  const rest = lines.slice(i).join('\n')
+  return { rules, rest }
+}
+
+function mergeRuleIntoFilter(existingText: string, newRule: RuleShape) {
+  const { rules, rest } = parseGeneratedBlocks(existingText)
+  const map = new Map<string, RuleShape>()
+
+  for (const rule of rules) {
+    map.set(ruleKey(rule), { ...rule, baseTypes: [...rule.baseTypes] })
+  }
+
+  const key = ruleKey(newRule)
+  const current = map.get(key)
+  if (current) {
+    current.baseTypes = [...new Set([...current.baseTypes, ...newRule.baseTypes])]
+    map.set(key, current)
+  } else {
+    map.set(key, { ...newRule, baseTypes: [...newRule.baseTypes] })
+  }
+
+  const rendered = [...map.values()].map(renderRule).join('\n')
+  return `${rendered}${rest.startsWith('\n') || rest === '' ? '' : '\n'}${rest}`
 }
 
 async function appendHideRuleFromHoveredItem() {
@@ -254,17 +342,20 @@ async function appendHideRuleFromHoveredItem() {
   log('sending Ctrl+Alt+C to PoE (APT-style)')
   copyItemTextLikeApt()
   const itemText = await pollClipboardForItemText(900)
-  const rule = buildHideRule(itemText)
-  log('appending rule', { rule })
-  await fs.appendFile(lootFilterPath, rule, 'utf8')
+  const ruleShape = buildRuleShape(itemText)
+  const existing = await fs.readFile(lootFilterPath, 'utf8').catch(() => '')
+  const nextText = mergeRuleIntoFilter(existing, ruleShape)
+  const renderedRule = renderRule(ruleShape)
+  log('writing merged rule set', { renderedRule })
+  await fs.writeFile(lootFilterPath, nextText, 'utf8')
 
   mainWindow?.webContents.send('quickhide:appended', {
     itemText,
-    rule,
+    rule: renderedRule,
     path: lootFilterPath,
   })
 
-  return { itemText, rule, path: lootFilterPath }
+  return { itemText, rule: renderedRule, path: lootFilterPath }
 }
 
 function registerHotkey() {
