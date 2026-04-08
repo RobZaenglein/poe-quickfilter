@@ -185,6 +185,7 @@ type ParsedItem = {
   nameLine: string
   secondLine: string
   stackSize: number | null
+  gemLevel: number | null
 }
 
 function parseItemText(itemText: string): ParsedItem {
@@ -201,7 +202,11 @@ function parseItemText(itemText: string): ParsedItem {
   const match = stackLine.match(/Stack Size:\s*(\d+)\//)
   const stackSize = match ? Number(match[1]) : null
 
-  return { itemClass, rarity, nameLine, secondLine, stackSize }
+  const levelLine = nonEmpty.find(line => line.startsWith('Level: ')) ?? ''
+  const gemLevelMatch = levelLine.match(/Level:\s*(\d+)/)
+  const gemLevel = gemLevelMatch ? Number(gemLevelMatch[1]) : null
+
+  return { itemClass, rarity, nameLine, secondLine, stackSize, gemLevel }
 }
 
 function q(value: string) {
@@ -212,6 +217,7 @@ type RuleShape = {
   className?: string
   rarity?: string
   stackSizeLte?: number
+  gemLevelLte?: number
   baseTypes: string[]
 }
 
@@ -233,11 +239,11 @@ function buildRuleShape(itemText: string): RuleShape {
     }
   }
 
+  const gemClasses = new Set(['Skill Gems', 'Support Gems'])
   const exactNameClasses = new Set([
     'Divination Cards',
     'Map Fragments',
-    'Skill Gems',
-    'Support Gems',
+    ...gemClasses,
   ])
 
   if (parsed.rarity === 'Unique') {
@@ -252,6 +258,14 @@ function buildRuleShape(itemText: string): RuleShape {
     target = parsed.nameLine
   } else {
     target = parsed.secondLine || parsed.nameLine
+  }
+
+  if (gemClasses.has(parsed.itemClass)) {
+    return {
+      className: parsed.itemClass || undefined,
+      gemLevelLte: parsed.gemLevel ?? undefined,
+      baseTypes: [target || 'Unknown Item'],
+    }
   }
 
   return {
@@ -270,6 +284,9 @@ function ruleKey(rule: RuleShape) {
   if (rule.className === 'Wombgifts') {
     return 'wombgifts'
   }
+  if (rule.className === 'Skill Gems' || rule.className === 'Support Gems') {
+    return `gems:${rule.className}:${rule.gemLevelLte ?? ''}`
+  }
   return `class:${rule.className ?? ''}`
 }
 
@@ -277,6 +294,7 @@ function renderRule(rule: RuleShape) {
   const baseTypes = [...new Set(rule.baseTypes)].sort().map(v => `\"${q(v)}\"`).join(' ')
   const lines = ['Hide']
   if (rule.stackSizeLte != null) lines.push(`    StackSize <= ${rule.stackSizeLte}`)
+  if (rule.gemLevelLte != null) lines.push(`    GemLevel <= ${rule.gemLevelLte}`)
   if (rule.className) lines.push(`    Class == \"${q(rule.className)}\"`)
   if (rule.rarity) lines.push(`    Rarity == \"${q(rule.rarity)}\"`)
   lines.push(`    BaseType == ${baseTypes}`)
@@ -302,6 +320,7 @@ function parseManagedSection(text: string): { rules: RuleShape[]; rest: string }
   const rules: RuleShape[] = blockTexts.map((joined) => {
     const classMatch = joined.match(/Class == \"([^\"]+)\"/)
     const stackMatch = joined.match(/StackSize <= (\d+)/)
+    const gemLevelMatch = joined.match(/GemLevel <= (\d+)/)
     const baseTypeMatch = joined.match(/BaseType == ([^\n]+)/)
     const baseTypes = baseTypeMatch
       ? [...baseTypeMatch[1].matchAll(/\"([^\"]+)\"/g)].map(m => m[1])
@@ -312,6 +331,7 @@ function parseManagedSection(text: string): { rules: RuleShape[]; rest: string }
       className: classMatch?.[1],
       rarity: rarityMatch?.[1],
       stackSizeLte: stackMatch ? Number(stackMatch[1]) : undefined,
+      gemLevelLte: gemLevelMatch ? Number(gemLevelMatch[1]) : undefined,
       baseTypes,
     }
   })
