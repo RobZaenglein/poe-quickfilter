@@ -261,11 +261,16 @@ function buildRuleShape(itemText: string): RuleShape {
 }
 
 function ruleKey(rule: RuleShape) {
-  return JSON.stringify({
-    className: rule.className ?? '',
-    rarity: rule.rarity ?? '',
-    stackSizeLte: rule.stackSizeLte ?? '',
-  })
+  if (rule.className === 'Stackable Currency') {
+    return `currency:${rule.stackSizeLte ?? ''}`
+  }
+  if (rule.rarity === 'Unique') {
+    return 'unique'
+  }
+  if (rule.className === 'Wombgifts') {
+    return 'wombgifts'
+  }
+  return `class:${rule.className ?? ''}`
 }
 
 function renderRule(rule: RuleShape) {
@@ -292,7 +297,7 @@ function parseManagedSection(text: string): { rules: RuleShape[]; rest: string }
   const managed = text.slice(startIdx + MANAGED_START.length, endIdx).trim()
   const restBefore = text.slice(0, startIdx)
   const restAfter = text.slice(endIdx + MANAGED_END.length)
-  const blockTexts = managed.split(/\n\s*\n(?=# Added by Poe Quickhide Filter)/).map(x => x.trim()).filter(Boolean)
+  const blockTexts = managed.split(/\n\s*\n(?=Hide\b)/).map(x => x.trim()).filter(Boolean)
 
   const rules: RuleShape[] = blockTexts.map((joined) => {
     const classMatch = joined.match(/Class == \"([^\"]+)\"/)
@@ -331,7 +336,10 @@ function mergeRuleIntoFilter(existingText: string, newRule: RuleShape) {
     map.set(key, { ...newRule, baseTypes: [...newRule.baseTypes] })
   }
 
-  const rendered = [...map.values()].map(renderRule).join('\n')
+  const rendered = [...map.values()]
+    .sort((a, b) => ruleKey(a).localeCompare(ruleKey(b)))
+    .map(renderRule)
+    .join('\n')
   const managedSection = `${MANAGED_START}\n${rendered}\n${MANAGED_END}\n\n`
   const cleanRest = rest.replace(/^\s+/, '')
   return `${managedSection}${cleanRest}`
