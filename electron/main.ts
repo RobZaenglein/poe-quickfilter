@@ -213,7 +213,7 @@ function buildHideRule(itemText: string) {
 
   if (parsed.itemClass === 'Stackable Currency') {
     const baseType = q(parsed.nameLine)
-    const stackLine = parsed.stackSize != null ? `\n    SetStackSize ${parsed.stackSize}` : ''
+    const stackLine = parsed.stackSize != null ? `\n    StackSize <= ${parsed.stackSize}` : ''
     return `\n# Added by Poe Quickhide Filter\nHide\n    Class \"Stackable Currency\"\n    BaseType \"${baseType}\"${stackLine}\n`
   }
 
