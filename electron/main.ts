@@ -22,6 +22,7 @@ const __dirname = path.dirname(__filename)
 let mainWindow: BrowserWindow | null = null
 let tray: Tray | null = null
 let isQuitting = false
+let hotkeyInFlight = false
 
 function log(...args: unknown[]) {
   console.log('[quickhide]', ...args)
@@ -186,6 +187,7 @@ type ParsedItem = {
   secondLine: string
   stackSize: number | null
   gemLevel: number | null
+  itemLevel: number | null
 }
 
 function parseItemText(itemText: string): ParsedItem {
@@ -206,7 +208,11 @@ function parseItemText(itemText: string): ParsedItem {
   const gemLevelMatch = levelLine.match(/Level:\s*(\d+)/)
   const gemLevel = gemLevelMatch ? Number(gemLevelMatch[1]) : null
 
-  return { itemClass, rarity, nameLine, secondLine, stackSize, gemLevel }
+  const itemLevelLine = nonEmpty.find(line => line.startsWith('Item Level: ')) ?? ''
+  const itemLevelMatch = itemLevelLine.match(/Item Level:\s*(\d+)/)
+  const itemLevel = itemLevelMatch ? Number(itemLevelMatch[1]) : null
+
+  return { itemClass, rarity, nameLine, secondLine, stackSize, gemLevel, itemLevel }
 }
 
 function q(value: string) {
@@ -218,6 +224,7 @@ type RuleShape = {
   rarity?: string
   stackSizeLte?: number
   gemLevelLte?: number
+  itemLevelLte?: number
   baseTypes: string[]
 }
 
@@ -270,6 +277,7 @@ function buildRuleShape(itemText: string): RuleShape {
 
   return {
     className: parsed.itemClass || undefined,
+    itemLevelLte: parsed.itemLevel ?? undefined,
     baseTypes: [target || 'Unknown Item'],
   }
 }
@@ -287,7 +295,7 @@ function ruleKey(rule: RuleShape) {
   if (rule.className === 'Skill Gems' || rule.className === 'Support Gems') {
     return `gems:${rule.className}:${rule.gemLevelLte ?? ''}`
   }
-  return `class:${rule.className ?? ''}`
+  return `class:${rule.className ?? ''}:ilvl:${rule.itemLevelLte ?? ''}`
 }
 
 function renderRule(rule: RuleShape) {
@@ -295,6 +303,7 @@ function renderRule(rule: RuleShape) {
   const lines = ['Hide']
   if (rule.stackSizeLte != null) lines.push(`    StackSize <= ${rule.stackSizeLte}`)
   if (rule.gemLevelLte != null) lines.push(`    GemLevel <= ${rule.gemLevelLte}`)
+  if (rule.itemLevelLte != null) lines.push(`    ItemLevel <= ${rule.itemLevelLte}`)
   if (rule.className) lines.push(`    Class == \"${q(rule.className)}\"`)
   if (rule.rarity) lines.push(`    Rarity == \"${q(rule.rarity)}\"`)
   lines.push(`    BaseType == ${baseTypes}`)
@@ -321,6 +330,7 @@ function parseManagedSection(text: string): { rules: RuleShape[]; rest: string }
     const classMatch = joined.match(/Class == \"([^\"]+)\"/)
     const stackMatch = joined.match(/StackSize <= (\d+)/)
     const gemLevelMatch = joined.match(/GemLevel <= (\d+)/)
+    const itemLevelMatch = joined.match(/ItemLevel <= (\d+)/)
     const baseTypeMatch = joined.match(/BaseType == ([^\n]+)/)
     const baseTypes = baseTypeMatch
       ? [...baseTypeMatch[1].matchAll(/\"([^\"]+)\"/g)].map(m => m[1])
@@ -332,6 +342,7 @@ function parseManagedSection(text: string): { rules: RuleShape[]; rest: string }
       rarity: rarityMatch?.[1],
       stackSizeLte: stackMatch ? Number(stackMatch[1]) : undefined,
       gemLevelLte: gemLevelMatch ? Number(gemLevelMatch[1]) : undefined,
+      itemLevelLte: itemLevelMatch ? Number(itemLevelMatch[1]) : undefined,
       baseTypes,
     }
   })
@@ -415,6 +426,11 @@ function registerHotkey() {
     }
 
     if (poeFocused && event.ctrlKey && event.keycode === UiohookKey.H) {
+      if (hotkeyInFlight) {
+        log('Ctrl+H ignored because handler already running')
+        return
+      }
+      hotkeyInFlight = true
       log('Ctrl+H detected')
       try {
         await appendHideRuleFromHoveredItem()
@@ -423,6 +439,10 @@ function registerHotkey() {
         mainWindow?.webContents.send('quickhide:error', {
           message: error instanceof Error ? error.message : String(error),
         })
+      } finally {
+        setTimeout(() => {
+          hotkeyInFlight = false
+        }, 150)
       }
     }
   })
