@@ -210,6 +210,7 @@ function q(value: string) {
 
 type RuleShape = {
   className?: string
+  rarity?: string
   stackSizeLte?: number
   baseTypes: string[]
 }
@@ -225,6 +226,13 @@ function buildRuleShape(itemText: string): RuleShape {
     }
   }
 
+  if (parsed.itemClass === 'Wombgifts') {
+    return {
+      className: 'Wombgifts',
+      baseTypes: [parsed.nameLine || 'Unknown Item'],
+    }
+  }
+
   const exactNameClasses = new Set([
     'Divination Cards',
     'Map Fragments',
@@ -232,17 +240,22 @@ function buildRuleShape(itemText: string): RuleShape {
     'Support Gems',
   ])
 
-  let target = parsed.nameLine
-
   if (parsed.rarity === 'Unique') {
-    target = parsed.nameLine
-  } else if (exactNameClasses.has(parsed.itemClass) || parsed.rarity === 'Gem' || parsed.rarity === 'Divination Card') {
+    return {
+      rarity: 'Unique',
+      baseTypes: [parsed.secondLine || parsed.nameLine || 'Unknown Item'],
+    }
+  }
+
+  let target = parsed.nameLine
+  if (exactNameClasses.has(parsed.itemClass) || parsed.rarity === 'Gem' || parsed.rarity === 'Divination Card') {
     target = parsed.nameLine
   } else {
     target = parsed.secondLine || parsed.nameLine
   }
 
   return {
+    className: parsed.itemClass || undefined,
     baseTypes: [target || 'Unknown Item'],
   }
 }
@@ -250,15 +263,17 @@ function buildRuleShape(itemText: string): RuleShape {
 function ruleKey(rule: RuleShape) {
   return JSON.stringify({
     className: rule.className ?? '',
+    rarity: rule.rarity ?? '',
     stackSizeLte: rule.stackSizeLte ?? '',
   })
 }
 
 function renderRule(rule: RuleShape) {
   const baseTypes = [...new Set(rule.baseTypes)].sort().map(v => `\"${q(v)}\"`).join(' ')
-  const lines = ['# Added by Poe Quickhide Filter', 'Hide']
+  const lines = ['Hide']
   if (rule.stackSizeLte != null) lines.push(`    StackSize <= ${rule.stackSizeLte}`)
   if (rule.className) lines.push(`    Class == \"${q(rule.className)}\"`)
+  if (rule.rarity) lines.push(`    Rarity == \"${q(rule.rarity)}\"`)
   lines.push(`    BaseType == ${baseTypes}`)
   return `${lines.join('\n')}\n`
 }
@@ -287,8 +302,10 @@ function parseManagedSection(text: string): { rules: RuleShape[]; rest: string }
       ? [...baseTypeMatch[1].matchAll(/\"([^\"]+)\"/g)].map(m => m[1])
       : []
 
+    const rarityMatch = joined.match(/Rarity == \"([^\"]+)\"/)
     return {
       className: classMatch?.[1],
+      rarity: rarityMatch?.[1],
       stackSizeLte: stackMatch ? Number(stackMatch[1]) : undefined,
       baseTypes,
     }
