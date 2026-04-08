@@ -115,7 +115,7 @@ async function browseForLootFilter() {
   return selected
 }
 
-function isPoeFocusedTitle(win: Awaited<ReturnType<typeof activeWin>>) {
+function isPoeFocusedTitle(win: Awaited<ReturnType<typeof activeWin>> | null) {
   if (!win) return false
   const owner = win.owner?.name?.toLowerCase() ?? ''
   const title = win.title?.toLowerCase() ?? ''
@@ -263,28 +263,23 @@ function renderRule(rule: RuleShape) {
   return `${lines.join('\n')}\n`
 }
 
-function parseGeneratedBlocks(text: string): { rules: RuleShape[]; rest: string } {
-  const marker = '# Added by Poe Quickhide Filter'
-  const lines = text.split(/\r?\n/)
-  const rules: RuleShape[] = []
-  let i = 0
+const MANAGED_START = '# >>> Poe Quickhide Filter START'
+const MANAGED_END = '# <<< Poe Quickhide Filter END'
 
-  while (i < lines.length && lines[i].trim() === '') i++
-  while (i < lines.length && lines[i] === marker) {
-    const block: string[] = []
-    while (i < lines.length) {
-      const line = lines[i]
-      if (i !== lines.length - 1 && lines[i + 1] === marker && line.trim() === '') {
-        block.push(line)
-        i++
-        break
-      }
-      block.push(line)
-      i++
-      if (i < lines.length && lines[i] === marker) break
-    }
+function parseManagedSection(text: string): { rules: RuleShape[]; rest: string } {
+  const startIdx = text.indexOf(MANAGED_START)
+  const endIdx = text.indexOf(MANAGED_END)
 
-    const joined = block.join('\n')
+  if (startIdx === -1 || endIdx === -1 || endIdx < startIdx) {
+    return { rules: [], rest: text }
+  }
+
+  const managed = text.slice(startIdx + MANAGED_START.length, endIdx).trim()
+  const restBefore = text.slice(0, startIdx)
+  const restAfter = text.slice(endIdx + MANAGED_END.length)
+  const blockTexts = managed.split(/\n\s*\n(?=# Added by Poe Quickhide Filter)/).map(x => x.trim()).filter(Boolean)
+
+  const rules: RuleShape[] = blockTexts.map((joined) => {
     const classMatch = joined.match(/Class == \"([^\"]+)\"/)
     const stackMatch = joined.match(/StackSize <= (\d+)/)
     const baseTypeMatch = joined.match(/BaseType == ([^\n]+)/)
@@ -292,21 +287,18 @@ function parseGeneratedBlocks(text: string): { rules: RuleShape[]; rest: string 
       ? [...baseTypeMatch[1].matchAll(/\"([^\"]+)\"/g)].map(m => m[1])
       : []
 
-    rules.push({
+    return {
       className: classMatch?.[1],
       stackSizeLte: stackMatch ? Number(stackMatch[1]) : undefined,
       baseTypes,
-    })
+    }
+  })
 
-    while (i < lines.length && lines[i].trim() === '') i++
-  }
-
-  const rest = lines.slice(i).join('\n')
-  return { rules, rest }
+  return { rules, rest: `${restBefore}${restAfter}` }
 }
 
 function mergeRuleIntoFilter(existingText: string, newRule: RuleShape) {
-  const { rules, rest } = parseGeneratedBlocks(existingText)
+  const { rules, rest } = parseManagedSection(existingText)
   const map = new Map<string, RuleShape>()
 
   for (const rule of rules) {
@@ -323,7 +315,9 @@ function mergeRuleIntoFilter(existingText: string, newRule: RuleShape) {
   }
 
   const rendered = [...map.values()].map(renderRule).join('\n')
-  return `${rendered}${rest.startsWith('\n') || rest === '' ? '' : '\n'}${rest}`
+  const managedSection = `${MANAGED_START}\n${rendered}\n${MANAGED_END}\n\n`
+  const cleanRest = rest.replace(/^\s+/, '')
+  return `${managedSection}${cleanRest}`
 }
 
 async function appendHideRuleFromHoveredItem() {
