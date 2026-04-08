@@ -23,6 +23,10 @@ let mainWindow: BrowserWindow | null = null
 let tray: Tray | null = null
 let isQuitting = false
 
+function log(...args: unknown[]) {
+  console.log('[quickhide]', ...args)
+}
+
 function isDev() {
   return !app.isPackaged
 }
@@ -59,7 +63,14 @@ function createWindow() {
 }
 
 function createTray() {
-  tray = new Tray(path.join(__dirname, 'assets/icon.png'))
+  try {
+    const trayIconPath = path.join(__dirname, 'assets/icon.png')
+    log('creating tray', { trayIconPath })
+    tray = new Tray(trayIconPath)
+  } catch (error) {
+    log('tray creation failed', error)
+    return
+  }
 
   const menu = Menu.buildFromTemplate([
     {
@@ -121,6 +132,7 @@ function isPoeItemText(text: string) {
 async function pollClipboardForItemText(timeoutMs = 600) {
   const started = Date.now()
   const before = clipboard.readText()
+  log('clipboard before copy', before?.slice(0, 120))
   if (isPoeItemText(before)) {
     clipboard.writeText('')
   }
@@ -129,10 +141,12 @@ async function pollClipboardForItemText(timeoutMs = 600) {
     const poll = () => {
       const text = clipboard.readText()
       if (isPoeItemText(text)) {
+        log('clipboard item text detected')
         resolve(text)
         return
       }
       if (Date.now() - started >= timeoutMs) {
+        log('clipboard poll timed out', { timeoutMs, lastText: text?.slice(0, 120) })
         reject(new Error('Timed out waiting for PoE item text in clipboard'))
         return
       }
@@ -164,18 +178,22 @@ function buildHideRule(itemText: string) {
 
 async function appendHideRuleFromHoveredItem() {
   const lootFilterPath = store.get('lootFilterPath')
+  log('append requested', { lootFilterPath })
   if (!lootFilterPath) {
     throw new Error('Loot filter path is not set')
   }
 
   const focused = await activeWin()
+  log('active window', focused ? { title: focused.title, owner: focused.owner?.name, path: focused.owner?.path } : null)
   if (!isPoeFocusedTitle(focused)) {
     throw new Error('Path of Exile is not focused')
   }
 
+  log('sending Ctrl+C to PoE')
   pressCtrlC()
   const itemText = await pollClipboardForItemText()
   const rule = buildHideRule(itemText)
+  log('appending rule', { rule })
   await fs.appendFile(lootFilterPath, rule, 'utf8')
 
   mainWindow?.webContents.send('quickhide:appended', {
@@ -188,11 +206,23 @@ async function appendHideRuleFromHoveredItem() {
 }
 
 function registerHotkey() {
+  log('registering uIOhook hotkey listener')
   uIOhook.on('keydown', async (event) => {
+    log('keydown', {
+      keycode: event.keycode,
+      ctrlKey: event.ctrlKey,
+      altKey: event.altKey,
+      shiftKey: event.shiftKey,
+      metaKey: (event as unknown as { metaKey?: boolean }).metaKey,
+      expectedH: UiohookKey.H,
+    })
+
     if (event.ctrlKey && event.keycode === UiohookKey.H) {
+      log('Ctrl+H detected')
       try {
         await appendHideRuleFromHoveredItem()
       } catch (error) {
+        log('Ctrl+H handler error', error)
         mainWindow?.webContents.send('quickhide:error', {
           message: error instanceof Error ? error.message : String(error),
         })
@@ -200,6 +230,7 @@ function registerHotkey() {
     }
   })
   uIOhook.start()
+  log('uIOhook started')
 }
 
 ipcMain.handle('settings:get', async () => ({
