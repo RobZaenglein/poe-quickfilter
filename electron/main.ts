@@ -20,10 +20,12 @@ const __filename = fileURLToPath(import.meta.url)
 const __dirname = path.dirname(__filename)
 
 let mainWindow: BrowserWindow | null = null
+let confirmWindow: BrowserWindow | null = null
 let tray: Tray | null = null
 let isQuitting = false
 let hotkeyInFlight = false
 let physicalCtrlHeld = false
+let pendingCapture: { itemText: string; rule: string; path: string } | null = null
 
 function log(...args: unknown[]) {
   console.log('[quickhide]', ...args)
@@ -61,6 +63,38 @@ function createWindow() {
 
   mainWindow.on('ready-to-show', () => {
     mainWindow?.show()
+  })
+}
+
+function createConfirmWindow() {
+  confirmWindow = new BrowserWindow({
+    width: 520,
+    height: 420,
+    show: false,
+    alwaysOnTop: true,
+    autoHideMenuBar: true,
+    resizable: false,
+    minimizable: false,
+    maximizable: false,
+    webPreferences: {
+      preload: path.join(__dirname, 'preload.cjs'),
+      contextIsolation: true,
+      nodeIntegration: false,
+    },
+  })
+
+  const url = process.env.VITE_DEV_SERVER_URL
+  if (isDev() && url) {
+    void confirmWindow.loadURL(url)
+  } else {
+    void confirmWindow.loadFile(path.join(__dirname, '../dist/index.html'))
+  }
+
+  confirmWindow.on('close', (e) => {
+    if (!isQuitting) {
+      e.preventDefault()
+      confirmWindow?.hide()
+    }
   })
 }
 
@@ -377,9 +411,9 @@ function mergeRuleIntoFilter(existingText: string, newRule: RuleShape) {
   return `${managedSection}${cleanRest}`
 }
 
-async function appendHideRuleFromHoveredItem() {
+async function captureHoveredItemForConfirmation() {
   const lootFilterPath = store.get('lootFilterPath')
-  log('append requested', { lootFilterPath })
+  log('capture requested', { lootFilterPath })
   if (!lootFilterPath) {
     throw new Error('Loot filter path is not set')
   }
@@ -394,19 +428,32 @@ async function appendHideRuleFromHoveredItem() {
   copyItemTextLikeApt()
   const itemText = await pollClipboardForItemText(900)
   const ruleShape = buildRuleShape(itemText)
-  const existing = await fs.readFile(lootFilterPath, 'utf8').catch(() => '')
-  const nextText = mergeRuleIntoFilter(existing, ruleShape)
   const renderedRule = renderRule(ruleShape)
-  log('writing merged rule set', { renderedRule })
-  await fs.writeFile(lootFilterPath, nextText, 'utf8')
 
-  mainWindow?.webContents.send('quickhide:appended', {
-    itemText,
-    rule: renderedRule,
-    path: lootFilterPath,
-  })
+  pendingCapture = { itemText, rule: renderedRule, path: lootFilterPath }
+  mainWindow?.webContents.send('quickhide:captured', pendingCapture)
+  confirmWindow?.webContents.send('quickhide:captured', pendingCapture)
+  confirmWindow?.show()
+  confirmWindow?.focus()
 
-  return { itemText, rule: renderedRule, path: lootFilterPath }
+  return pendingCapture
+}
+
+async function confirmPendingHide() {
+  if (!pendingCapture) {
+    throw new Error('No pending hide action')
+  }
+
+  const ruleShape = buildRuleShape(pendingCapture.itemText)
+  const existing = await fs.readFile(pendingCapture.path, 'utf8').catch(() => '')
+  const nextText = mergeRuleIntoFilter(existing, ruleShape)
+  await fs.writeFile(pendingCapture.path, nextText, 'utf8')
+
+  const result = { ...pendingCapture }
+  pendingCapture = null
+  confirmWindow?.hide()
+  mainWindow?.webContents.send('quickhide:appended', result)
+  return result
 }
 
 function registerHotkey() {
@@ -440,7 +487,7 @@ function registerHotkey() {
       hotkeyInFlight = true
       log('Ctrl+H detected')
       try {
-        await appendHideRuleFromHoveredItem()
+        await captureHoveredItemForConfirmation()
       } catch (error) {
         log('Ctrl+H handler error', error)
         mainWindow?.webContents.send('quickhide:error', {
@@ -479,11 +526,22 @@ ipcMain.handle('settings:setLootFilterPath', async (_event, value: string) => {
 })
 
 ipcMain.handle('quickhide:testAppend', async () => {
-  return await appendHideRuleFromHoveredItem()
+  return await captureHoveredItemForConfirmation()
+})
+
+ipcMain.handle('quickhide:confirmHide', async () => {
+  return await confirmPendingHide()
+})
+
+ipcMain.handle('quickhide:cancelHide', async () => {
+  pendingCapture = null
+  confirmWindow?.hide()
+  return { ok: true }
 })
 
 app.whenReady().then(() => {
   createWindow()
+  createConfirmWindow()
   createTray()
   registerHotkey()
 })

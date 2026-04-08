@@ -8,6 +8,9 @@ declare global {
       browseLootFilter: () => Promise<{ lootFilterPath: string | null }>
       setLootFilterPath: (value: string) => Promise<{ lootFilterPath: string }>
       testAppend: () => Promise<{ itemText: string; rule: string; path: string }>
+      confirmHide: () => Promise<{ itemText: string; rule: string; path: string }>
+      cancelHide: () => Promise<{ ok: true }>
+      onCaptured: (cb: (payload: { itemText: string; rule: string; path: string }) => void) => void
       onAppended: (cb: (payload: { itemText: string; rule: string; path: string }) => void) => void
       onError: (cb: (payload: { message: string }) => void) => void
     }
@@ -19,13 +22,20 @@ function App() {
   const [status, setStatus] = useState('Idle')
   const [lastItemText, setLastItemText] = useState('')
   const [lastRule, setLastRule] = useState('')
+  const [pendingRule, setPendingRule] = useState('')
 
   useEffect(() => {
     void window.quickhide.getSettings().then(({ lootFilterPath }) => setLootFilterPath(lootFilterPath || ''))
+    window.quickhide.onCaptured(({ itemText, rule, path }) => {
+      setStatus(`Captured hovered item from ${path}`)
+      setLastItemText(itemText)
+      setPendingRule(rule)
+    })
     window.quickhide.onAppended(({ itemText, rule, path }) => {
       setStatus(`Appended hide rule to ${path}`)
       setLastItemText(itemText)
       setLastRule(rule)
+      setPendingRule('')
     })
     window.quickhide.onError(({ message }) => {
       setStatus(`Error: ${message}`)
@@ -83,7 +93,9 @@ function App() {
       <section className="card">
         <h2>Actions</h2>
         <div className="row">
-          <button onClick={() => void testAppend()}>Test append from hovered item</button>
+          <button onClick={() => void testAppend()}>Capture hovered item</button>
+          <button onClick={() => void window.quickhide.confirmHide()} disabled={!pendingRule}>Hide</button>
+          <button onClick={() => void window.quickhide.cancelHide()} disabled={!pendingRule}>Cancel</button>
         </div>
         <p>{status}</p>
       </section>
@@ -91,6 +103,11 @@ function App() {
       <section className="card">
         <h2>Last captured item text</h2>
         <pre>{lastItemText || 'None yet'}</pre>
+      </section>
+
+      <section className="card">
+        <h2>Pending rule</h2>
+        <pre>{pendingRule || 'None pending'}</pre>
       </section>
 
       <section className="card">
