@@ -1,6 +1,7 @@
 import { app, BrowserWindow, Tray, Menu, ipcMain, dialog, clipboard } from 'electron'
 import path from 'node:path'
 import fs from 'node:fs/promises'
+import { fileURLToPath } from 'node:url'
 import Store from 'electron-store'
 import { uIOhook, UiohookKey } from 'uiohook-napi'
 import activeWin from 'active-win'
@@ -14,6 +15,9 @@ const store = new Store<Settings>({
     lootFilterPath: '',
   },
 })
+
+const __filename = fileURLToPath(import.meta.url)
+const __dirname = path.dirname(__filename)
 
 let mainWindow: BrowserWindow | null = null
 let tray: Tray | null = null
