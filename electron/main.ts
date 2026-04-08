@@ -85,9 +85,9 @@ function createConfirmWindow() {
 
   const url = process.env.VITE_DEV_SERVER_URL
   if (isDev() && url) {
-    void confirmWindow.loadURL(url)
+    void confirmWindow.loadURL(`${url}?mode=confirm`)
   } else {
-    void confirmWindow.loadFile(path.join(__dirname, '../dist/index.html'))
+    void confirmWindow.loadFile(path.join(__dirname, '../dist/index.html'), { query: { mode: 'confirm' } })
   }
 
   confirmWindow.on('close', (e) => {

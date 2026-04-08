@@ -10,4 +10,5 @@ contextBridge.exposeInMainWorld('quickhide', {
   onCaptured: (cb) => ipcRenderer.on('quickhide:captured', (_event, payload) => cb(payload)),
   onAppended: (cb) => ipcRenderer.on('quickhide:appended', (_event, payload) => cb(payload)),
   onError: (cb) => ipcRenderer.on('quickhide:error', (_event, payload) => cb(payload)),
+  getMode: () => new URLSearchParams(window.location.search).get('mode') || 'main',
 })

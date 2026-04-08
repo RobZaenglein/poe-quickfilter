@@ -13,8 +13,17 @@ declare global {
       onCaptured: (cb: (payload: { itemText: string; rule: string; path: string }) => void) => void
       onAppended: (cb: (payload: { itemText: string; rule: string; path: string }) => void) => void
       onError: (cb: (payload: { message: string }) => void) => void
+      getMode: () => 'main' | 'confirm'
     }
   }
+}
+
+function extractSummary(itemText: string) {
+  const lines = itemText.split(/\r?\n/).map(x => x.trim()).filter(Boolean)
+  const rarityIndex = lines.findIndex(line => line.startsWith('Rarity: '))
+  const nameLine = rarityIndex >= 0 ? (lines[rarityIndex + 1] ?? '') : ''
+  const secondLine = rarityIndex >= 0 ? (lines[rarityIndex + 2] ?? '') : ''
+  return secondLine && secondLine !== '--------' ? `${nameLine} / ${secondLine}` : nameLine
 }
 
 function App() {
@@ -23,6 +32,7 @@ function App() {
   const [lastItemText, setLastItemText] = useState('')
   const [lastRule, setLastRule] = useState('')
   const [pendingRule, setPendingRule] = useState('')
+  const mode = window.quickhide.getMode()
 
   useEffect(() => {
     void window.quickhide.getSettings().then(({ lootFilterPath }) => setLootFilterPath(lootFilterPath || ''))
@@ -68,6 +78,21 @@ function App() {
     }
   }
 
+  if (mode === 'confirm') {
+    return (
+      <div className="app-shell confirm-shell">
+        <section className="card confirm-card">
+          <h2>{extractSummary(lastItemText) || 'Captured Item'}</h2>
+          <pre>{pendingRule || 'No pending rule'}</pre>
+          <div className="row">
+            <button onClick={() => void window.quickhide.confirmHide()} disabled={!pendingRule}>Hide</button>
+            <button onClick={() => void window.quickhide.cancelHide()} disabled={!pendingRule}>Cancel</button>
+          </div>
+        </section>
+      </div>
+    )
+  }
+
   return (
     <div className="app-shell">
       <h1>Poe Quickhide Filter</h1>
@@ -94,8 +119,6 @@ function App() {
         <h2>Actions</h2>
         <div className="row">
           <button onClick={() => void testAppend()}>Capture hovered item</button>
-          <button onClick={() => void window.quickhide.confirmHide()} disabled={!pendingRule}>Hide</button>
-          <button onClick={() => void window.quickhide.cancelHide()} disabled={!pendingRule}>Cancel</button>
         </div>
         <p>{status}</p>
       </section>
