@@ -156,12 +156,27 @@ async function pollClipboardForItemText(timeoutMs = 600) {
   })
 }
 
-function pressCtrlAltC() {
-  uIOhook.keyToggle(UiohookKey.Ctrl, 'down')
-  uIOhook.keyToggle(UiohookKey.Alt, 'down')
-  uIOhook.keyTap(UiohookKey.C)
-  uIOhook.keyToggle(UiohookKey.Alt, 'up')
+function tapKey(key: number) {
+  uIOhook.keyTap(key)
+}
+
+function copyItemTextLikeApt() {
+  // Match Awakened PoE Trade behavior more closely:
+  // release trigger keys first, then press merged copy combo (Ctrl + Alt + C)
+  uIOhook.keyToggle(UiohookKey.H, 'up')
   uIOhook.keyToggle(UiohookKey.Ctrl, 'up')
+
+  setTimeout(() => {
+    uIOhook.keyToggle(UiohookKey.Ctrl, 'down')
+    uIOhook.keyToggle(UiohookKey.Alt, 'down')
+    setTimeout(() => {
+      tapKey(UiohookKey.C)
+      setTimeout(() => {
+        uIOhook.keyToggle(UiohookKey.Alt, 'up')
+        uIOhook.keyToggle(UiohookKey.Ctrl, 'up')
+      }, 20)
+    }, 20)
+  }, 40)
 }
 
 function extractBaseType(itemText: string) {
@@ -191,9 +206,9 @@ async function appendHideRuleFromHoveredItem() {
     throw new Error('Path of Exile is not focused')
   }
 
-  log('sending Ctrl+Alt+C to PoE')
-  pressCtrlAltC()
-  const itemText = await pollClipboardForItemText()
+  log('sending Ctrl+Alt+C to PoE (APT-style)')
+  copyItemTextLikeApt()
+  const itemText = await pollClipboardForItemText(900)
   const rule = buildHideRule(itemText)
   log('appending rule', { rule })
   await fs.appendFile(lootFilterPath, rule, 'utf8')
