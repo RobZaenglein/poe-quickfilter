@@ -179,18 +179,63 @@ function copyItemTextLikeApt() {
   }, 40)
 }
 
-function extractBaseType(itemText: string) {
-  const lines = itemText.split(/\r?\n/).map(x => x.trim()).filter(Boolean)
-  const rarityIndex = lines.findIndex(line => line.startsWith('Rarity:'))
-  if (rarityIndex >= 0 && lines[rarityIndex + 2]) {
-    return lines[rarityIndex + 2]
-  }
-  return lines[0] ?? 'Unknown Item'
+type ParsedItem = {
+  itemClass: string
+  rarity: string
+  nameLine: string
+  secondLine: string
+  stackSize: number | null
+}
+
+function parseItemText(itemText: string): ParsedItem {
+  const lines = itemText.split(/\r?\n/).map(x => x.trim())
+  const nonEmpty = lines.filter(Boolean)
+  const itemClass = nonEmpty.find(line => line.startsWith('Item Class: '))?.replace('Item Class: ', '') ?? ''
+  const rarity = nonEmpty.find(line => line.startsWith('Rarity: '))?.replace('Rarity: ', '') ?? ''
+
+  const rarityIndex = nonEmpty.findIndex(line => line.startsWith('Rarity: '))
+  const nameLine = rarityIndex >= 0 ? (nonEmpty[rarityIndex + 1] ?? '') : ''
+  const secondLine = rarityIndex >= 0 ? (nonEmpty[rarityIndex + 2] ?? '') : ''
+
+  const stackLine = nonEmpty.find(line => line.startsWith('Stack Size: ')) ?? ''
+  const match = stackLine.match(/Stack Size:\s*(\d+)\//)
+  const stackSize = match ? Number(match[1]) : null
+
+  return { itemClass, rarity, nameLine, secondLine, stackSize }
+}
+
+function q(value: string) {
+  return value.replace(/"/g, '\\"')
 }
 
 function buildHideRule(itemText: string) {
-  const baseType = extractBaseType(itemText).replace(/"/g, '\\"')
-  return `\n# Added by Poe Quickhide Filter\nHide\n    BaseType \"${baseType}\"\n`
+  const parsed = parseItemText(itemText)
+
+  if (parsed.itemClass === 'Stackable Currency') {
+    const baseType = q(parsed.nameLine)
+    const stackLine = parsed.stackSize != null ? `\n    SetStackSize ${parsed.stackSize}` : ''
+    return `\n# Added by Poe Quickhide Filter\nHide\n    Class \"Stackable Currency\"\n    BaseType \"${baseType}\"${stackLine}\n`
+  }
+
+  const exactNameClasses = new Set([
+    'Divination Cards',
+    'Map Fragments',
+    'Skill Gems',
+    'Support Gems',
+  ])
+
+  let target = parsed.nameLine
+
+  if (parsed.rarity === 'Unique') {
+    target = parsed.nameLine
+  } else if (exactNameClasses.has(parsed.itemClass) || parsed.rarity === 'Gem' || parsed.rarity === 'Divination Card') {
+    target = parsed.nameLine
+  } else {
+    target = parsed.secondLine || parsed.nameLine
+  }
+
+  target = q(target || 'Unknown Item')
+  return `\n# Added by Poe Quickhide Filter\nHide\n    BaseType \"${target}\"\n`
 }
 
 async function appendHideRuleFromHoveredItem() {
