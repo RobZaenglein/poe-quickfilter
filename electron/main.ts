@@ -156,9 +156,11 @@ async function pollClipboardForItemText(timeoutMs = 600) {
   })
 }
 
-function pressCtrlC() {
+function pressCtrlAltC() {
   uIOhook.keyToggle(UiohookKey.Ctrl, 'down')
+  uIOhook.keyToggle(UiohookKey.Alt, 'down')
   uIOhook.keyTap(UiohookKey.C)
+  uIOhook.keyToggle(UiohookKey.Alt, 'up')
   uIOhook.keyToggle(UiohookKey.Ctrl, 'up')
 }
 
@@ -189,8 +191,8 @@ async function appendHideRuleFromHoveredItem() {
     throw new Error('Path of Exile is not focused')
   }
 
-  log('sending Ctrl+C to PoE')
-  pressCtrlC()
+  log('sending Ctrl+Alt+C to PoE')
+  pressCtrlAltC()
   const itemText = await pollClipboardForItemText()
   const rule = buildHideRule(itemText)
   log('appending rule', { rule })
@@ -208,16 +210,21 @@ async function appendHideRuleFromHoveredItem() {
 function registerHotkey() {
   log('registering uIOhook hotkey listener')
   uIOhook.on('keydown', async (event) => {
-    log('keydown', {
-      keycode: event.keycode,
-      ctrlKey: event.ctrlKey,
-      altKey: event.altKey,
-      shiftKey: event.shiftKey,
-      metaKey: (event as unknown as { metaKey?: boolean }).metaKey,
-      expectedH: UiohookKey.H,
-    })
+    const focused = await activeWin().catch(() => null)
+    const poeFocused = isPoeFocusedTitle(focused)
 
-    if (event.ctrlKey && event.keycode === UiohookKey.H) {
+    if (poeFocused) {
+      log('keydown', {
+        keycode: event.keycode,
+        ctrlKey: event.ctrlKey,
+        altKey: event.altKey,
+        shiftKey: event.shiftKey,
+        metaKey: (event as unknown as { metaKey?: boolean }).metaKey,
+        expectedH: UiohookKey.H,
+      })
+    }
+
+    if (poeFocused && event.ctrlKey && event.keycode === UiohookKey.H) {
       log('Ctrl+H detected')
       try {
         await appendHideRuleFromHoveredItem()
